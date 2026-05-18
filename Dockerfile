@@ -1,37 +1,23 @@
-FROM python:3.11-slim AS base
-
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
-
-RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates \
- && apt-get upgrade -y \
- && rm -rf /var/lib/apt/lists/* \
- && groupadd -r foodv \
- && useradd -r -g foodv -m -d /home/foodv -s /usr/sbin/nologin foodv
+# Stage 1: builder
+FROM python:3.11-slim@sha256:9a7765b36773a37061455b332f18e265e7f58f6fea9c419a550d2a8b0e9db834 AS builder
 
 WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
 
-COPY --chown=foodv:foodv requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Stage 2: runtime
+FROM python:3.11-slim@sha256:9a7765b36773a37061455b332f18e265e7f58f6fea9c419a550d2a8b0e9db834 AS runtime
 
-COPY --chown=foodv:foodv . .
-
-USER foodv
-
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && addgroup --system appgroup \
+    && adduser --system --ingroup appgroup appuser
+COPY --from=builder /root/.local /home/appuser/.local
+COPY --chown=appuser:appgroup . .
+USER appuser
+ENV PATH=/home/appuser/.local/bin:$PATH
 EXPOSE 8001
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -fsS http://localhost:8001/health/ready || exit 1
-
-CMD ["gunicorn", "main:app", \
-     "-k", "uvicorn.workers.UvicornWorker", \
-     "--workers", "4", \
-     "--worker-tmp-dir", "/dev/shm", \
-     "--bind", "0.0.0.0:8001", \
-     "--timeout", "60", \
-     "--graceful-timeout", "30", \
-     "--access-logfile", "-", \
-     "--error-logfile", "-"]
+HEALTHCHECK CMD curl -fsS http://localhost:8001/health || exit 1
+CMD gunicorn main:app -w ${WEB_CONCURRENCY:-4} -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8001

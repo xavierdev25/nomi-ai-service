@@ -1,8 +1,15 @@
-"""Tests de la validación post-LLM compartida."""
+"""Tests de validación de recomendaciones y esquemas relacionados."""
 
 from __future__ import annotations
 
-from models.schemas import AvailableProduct, RecommendationRequest
+import pytest
+from pydantic import ValidationError
+
+from models.schemas import (
+    AvailableProduct,
+    ProductRecommendation,
+    RecommendationRequest,
+)
 from services.validators import normalize_recommendation_items, sort_and_trim
 
 
@@ -90,5 +97,27 @@ def test_sort_and_trim():
         {"product_id": 5, "score": 0.5, "reason": "e"},
     ]
     request = _make_request(products)
-    result = sort_and_trim(normalize_recommendation_items(items, request), max_recommendations=2)
+    result = sort_and_trim(
+        normalize_recommendation_items(items, request), max_recommendations=2
+    )
     assert [r.product_id for r in result] == [2, 4]
+
+
+def test_cap_max_recommendations_a_productos_disponibles():
+    request = _make_request(
+        [AvailableProduct(id=1, nombre="Arroz", precio=5.0, categoria="COMIDA")]
+    )
+
+    assert request.max_recommendations == 1
+
+
+def test_product_recommendation_rechaza_product_id_menor_a_uno():
+    with pytest.raises(ValidationError):
+        ProductRecommendation(
+            product_id=0,
+            nombre="Arroz",
+            precio=5.0,
+            categoria="COMIDA",
+            score=0.9,
+            reason="ok",
+        )

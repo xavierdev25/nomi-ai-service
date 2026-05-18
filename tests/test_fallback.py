@@ -26,7 +26,9 @@ def _make_request():
     )
 
 
-def _provider(name: str, *, available: bool = True, side_effect=None, return_value=None):
+def _provider(
+    name: str, *, available: bool = True, side_effect=None, return_value=None
+):
     p = MagicMock()
     p.name = name
     p.is_available.return_value = available
@@ -38,7 +40,9 @@ def _provider(name: str, *, available: bool = True, side_effect=None, return_val
 
 
 def test_usa_primer_proveedor_si_funciona():
-    expected = RecommendationResponse(user_id=1, recommendations=[], generated_by="primary")
+    expected = RecommendationResponse(
+        user_id=1, recommendations=[], generated_by="primary"
+    )
     primary = _provider("primary", return_value=expected)
     fallback = _provider("fallback", return_value=expected)
 
@@ -51,7 +55,9 @@ def test_usa_primer_proveedor_si_funciona():
 
 
 def test_fallback_se_usa_si_primero_falla():
-    expected = RecommendationResponse(user_id=1, recommendations=[], generated_by="fallback")
+    expected = RecommendationResponse(
+        user_id=1, recommendations=[], generated_by="fallback"
+    )
     primary = _provider("primary", side_effect=RuntimeError("ollama down"))
     fallback = _provider("fallback", return_value=expected)
 
@@ -64,7 +70,9 @@ def test_fallback_se_usa_si_primero_falla():
 
 
 def test_salta_proveedor_no_disponible_sin_intentar_call():
-    expected = RecommendationResponse(user_id=1, recommendations=[], generated_by="fallback")
+    expected = RecommendationResponse(
+        user_id=1, recommendations=[], generated_by="fallback"
+    )
     primary = _provider("primary", available=False)
     fallback = _provider("fallback", return_value=expected)
 

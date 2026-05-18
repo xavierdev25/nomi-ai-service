@@ -15,10 +15,9 @@ items con la forma `{product_id, score, reason}` debe pasar por
 from __future__ import annotations
 
 import logging
-from typing import Iterable
+from collections.abc import Iterable
 
 from models.schemas import ProductRecommendation, RecommendationRequest
-
 from services.sanitizer import safe_reason
 
 logger = logging.getLogger(__name__)
@@ -46,7 +45,8 @@ def normalize_recommendation_items(
 
         if pid is None or pid not in valid_products:
             logger.warning(
-                "Descartando recomendación con product_id=%r (alucinado o duplicado)", pid
+                "Descartando recomendación con product_id=%r (alucinado o duplicado)",
+                pid,
             )
             continue
 

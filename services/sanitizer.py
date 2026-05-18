@@ -25,7 +25,7 @@ _PROMPT_INJECTION_KEYWORDS = re.compile(
 
 
 def scrub_for_prompt(text: str | None, max_len: int = 60) -> str:
-    """Limpia texto de fuente potencialmente no confiable antes de meterlo en un prompt."""
+    """Limpia texto potencialmente no confiable antes del prompt."""
     if not text:
         return ""
     text = _PROMPT_NEWLINES.sub(" ", text)
@@ -35,7 +35,9 @@ def scrub_for_prompt(text: str | None, max_len: int = 60) -> str:
     return text[:max_len]
 
 
-def scrub_list_for_prompt(items: list[str] | None, max_items: int = 10, max_len: int = 40) -> str:
+def scrub_list_for_prompt(
+    items: list[str] | None, max_items: int = 10, max_len: int = 40
+) -> str:
     """Une una lista de strings ya sanitizándolos individualmente."""
     if not items:
         return "ninguna"

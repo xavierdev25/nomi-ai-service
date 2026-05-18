@@ -15,8 +15,9 @@ from __future__ import annotations
 import logging
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
+from opentelemetry import trace
 from pydantic import ValidationError
 
 from config import RATE_LIMIT_RECOMMENDATIONS
@@ -25,21 +26,23 @@ from models.schemas import (
     RecommendationRequest,
     RecommendationResponse,
 )
-
-from services.cache_service import get_cache_service
+from services.cache_service import CacheService, get_cache_service
+from services.exceptions import AIServiceError
 from services.logging_filter import hash_user_id
 from services.ollama_service import check_ollama_health
-from services.orchestrator import AllProvidersFailedError, LLMOrchestrator
+from services.orchestrator import LLMOrchestrator
 from services.rate_limit import limiter
+from services.tracing import current_trace_id
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 router = APIRouter()
 
 
-def _get_orchestrator(request: Request) -> LLMOrchestrator:
+def get_orchestrator(request: Request) -> LLMOrchestrator:
     orchestrator = getattr(request.app.state, "orchestrator", None)
     if orchestrator is None:
-        raise HTTPException(status_code=503, detail="Servicio no inicializado")
+        raise HTTPException(status_code=503, detail="Service unavailable")
     return orchestrator
 
 
@@ -48,19 +51,21 @@ def _get_orchestrator(request: Request) -> LLMOrchestrator:
 async def recommend(
     request: Request,
     body: RecommendationRequest,
+    orchestrator: LLMOrchestrator = Depends(get_orchestrator),
+    cache: CacheService = Depends(get_cache_service),
 ) -> RecommendationResponse:
     err_id = uuid4().hex[:12]
     uid_hash = hash_user_id(body.user_id)
 
     try:
         logger.info(
-            "Recomendaciones request uid=%s products=%d max=%d",
+            "Recomendaciones request trace_id=%s uid=%s products=%d max=%d",
+            current_trace_id(),
             uid_hash,
             len(body.available_products),
             body.max_recommendations,
         )
 
-        cache = get_cache_service()
         cache_key = cache.make_key(
             user_id=body.user_id,
             product_ids=[p.id for p in body.available_products],
@@ -77,29 +82,29 @@ async def recommend(
             except ValidationError:
                 logger.warning("Cache corrupto para key=%s, regenerando", cache_key)
 
-        orchestrator = _get_orchestrator(request)
-        result = await run_in_threadpool(orchestrator.execute, body)
+        with tracer.start_as_current_span("llm.recommendation"):
+            result = await run_in_threadpool(orchestrator.execute, body)
 
         await run_in_threadpool(cache.set, cache_key, result.model_dump())
 
         logger.info(
-            "Recomendaciones generadas uid=%s count=%d source=%s",
+            "Recomendaciones generadas trace_id=%s uid=%s count=%d source=%s",
+            current_trace_id(),
             uid_hash,
             len(result.recommendations),
             result.generated_by,
         )
         return result
 
-    except AllProvidersFailedError:
-        logger.error("[%s] Todos los proveedores LLM fallaron uid=%s", err_id, uid_hash)
-        raise HTTPException(
-            status_code=503,
-            detail={"error_id": err_id, "message": "Servicio de IA temporalmente no disponible"},
-        )
+    except AIServiceError:
+        logger.error("[%s] Servicio IA no disponible uid=%s", err_id, uid_hash)
+        raise
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("[%s] Error inesperado uid=%s: %s", err_id, uid_hash, exc, exc_info=True)
+        logger.error(
+            "[%s] Error inesperado uid=%s: %s", err_id, uid_hash, exc, exc_info=True
+        )
         raise HTTPException(
             status_code=500,
             detail={"error_id": err_id, "message": "Error interno"},

@@ -11,14 +11,15 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import List
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from config import settings
 
 # ---------------------------------------------------------------------------
 # Restricciones dietéticas (estrictamente tipadas)
 # ---------------------------------------------------------------------------
+
 
 class DietaryRestriction(str, Enum):
     VEGETARIANO = "VEGETARIANO"
@@ -34,13 +35,16 @@ class DietaryRestriction(str, Enum):
 
 # Permite letras (con tildes/ñ), dígitos, espacios y signos de puntuación
 # inocuos. Bloquea: \n \r ` $ < > { } [ ] | \ y comillas.
-_SAFE_USER_TEXT = re.compile(r"^[A-Za-z0-9áéíóúÁÉÍÓÚñÑüÜ\s\-_,.()/&%+]+$")
+_SAFE_USER_TEXT = re.compile(
+    r"^[A-Za-z0-9áéíóúÁÉÍÓÚñÑüÜ\s\-_,.()/&%+]+$",
+    re.UNICODE,
+)
 
 # Patrones que sugieren intentos de prompt injection
 _INJECTION_PATTERNS = re.compile(
     r"(?:^|\s)(ignore|disregard|forget|override|system\s*:|assistant\s*:|"
     r"</?(?:system|user|assistant)>|\\n|\\r)",
-    re.IGNORECASE,
+    re.IGNORECASE | re.UNICODE,
 )
 
 
@@ -62,6 +66,7 @@ def _validate_user_text(value: str, field: str, max_len: int) -> str:
 # ---------------------------------------------------------------------------
 # Productos disponibles
 # ---------------------------------------------------------------------------
+
 
 class AvailableProduct(BaseModel):
     """Producto del catálogo enviado por el backend Spring."""
@@ -86,16 +91,19 @@ class AvailableProduct(BaseModel):
 # Request / Response
 # ---------------------------------------------------------------------------
 
+
 class RecommendationRequest(BaseModel):
     user_id: int = Field(ge=1, description="ID interno del usuario")
-    restrictions: List[DietaryRestriction] = Field(default_factory=list, max_length=10)
-    preferences: List[str] = Field(default_factory=list, max_length=10)
-    available_products: List[AvailableProduct] = Field(default_factory=list, max_length=200)
+    restrictions: list[DietaryRestriction] = Field(default_factory=list, max_length=10)
+    preferences: list[str] = Field(default_factory=list, max_length=10)
+    available_products: list[AvailableProduct] = Field(
+        default_factory=list, max_length=200
+    )
     max_recommendations: int = Field(default=5, ge=1, le=20)
 
     @field_validator("preferences", mode="after")
     @classmethod
-    def _validate_preferences(cls, v: List[str]) -> List[str]:
+    def _validate_preferences(cls, v: list[str]) -> list[str]:
         cleaned: list[str] = []
         seen: set[str] = set()
         for pref in v:
@@ -109,7 +117,7 @@ class RecommendationRequest(BaseModel):
 
     @field_validator("available_products", mode="after")
     @classmethod
-    def _validate_products(cls, v: List[AvailableProduct]) -> List[AvailableProduct]:
+    def _validate_products(cls, v: list[AvailableProduct]) -> list[AvailableProduct]:
         if not v:
             raise ValueError("available_products no puede estar vacío")
         ids = [p.id for p in v]
@@ -117,9 +125,15 @@ class RecommendationRequest(BaseModel):
             raise ValueError("available_products contiene IDs duplicados")
         return v
 
+    @model_validator(mode="after")
+    def cap_max_recommendations(self) -> RecommendationRequest:
+        if self.max_recommendations > len(self.available_products):
+            self.max_recommendations = len(self.available_products)
+        return self
+
 
 class ProductRecommendation(BaseModel):
-    product_id: int
+    product_id: int = Field(..., ge=1)
     nombre: str
     precio: float
     categoria: str
@@ -129,22 +143,16 @@ class ProductRecommendation(BaseModel):
 
 class RecommendationResponse(BaseModel):
     user_id: int
-    recommendations: List[ProductRecommendation]
-    generated_by: str = "phi3"
+    recommendations: list[ProductRecommendation]
+    generated_by: str = Field(default_factory=lambda: settings.OLLAMA_MODEL)
 
 
 # ---------------------------------------------------------------------------
 # Salud
 # ---------------------------------------------------------------------------
 
+
 class OllamaHealthResponse(BaseModel):
     ollama: str
     model: str
     available: bool
-
-
-class ReadinessResponse(BaseModel):
-    ready: bool
-    ollama: str
-    groq_configured: bool
-    cache: str

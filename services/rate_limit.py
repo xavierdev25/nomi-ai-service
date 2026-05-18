@@ -10,14 +10,20 @@ faltan se usa "anon".
 
 from __future__ import annotations
 
+import hashlib
+
 from fastapi import Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 
+def get_api_key_hash(api_key: str) -> str:
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
+
+
 def _per_user_key(request: Request) -> str:
     api_key = request.headers.get("X-API-Key", "")
-    api_key_part = api_key[:16] if api_key else "anon"
+    api_key_part = get_api_key_hash(api_key) if api_key else "anon"
     ip_part = get_remote_address(request) or "unknown"
     return f"{api_key_part}:{ip_part}"
 

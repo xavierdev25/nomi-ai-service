@@ -18,7 +18,7 @@ class LLMProvider(Protocol):
     name: str
 
     def is_available(self) -> bool:
-        """Indica si el proveedor está configurado y operativo (configuración mínima)."""
+        """Indica si el proveedor está configurado y operativo."""
         ...
 
     def get_recommendations(

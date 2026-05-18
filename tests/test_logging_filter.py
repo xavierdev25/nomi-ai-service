@@ -9,8 +9,13 @@ from services.logging_filter import SecretFilter, hash_user_id
 
 def _make_record(msg: str) -> logging.LogRecord:
     return logging.LogRecord(
-        name="test", level=logging.INFO, pathname=__file__, lineno=1,
-        msg=msg, args=(), exc_info=None,
+        name="test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg=msg,
+        args=(),
+        exc_info=None,
     )
 
 

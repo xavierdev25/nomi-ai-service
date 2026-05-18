@@ -16,7 +16,7 @@ def test_scrub_remueve_saltos_de_linea():
 def test_scrub_remueve_backticks_y_comillas():
     out = scrub_for_prompt("`evil` \"quotes\" 'single'", max_len=80)
     assert "`" not in out
-    assert "\"" not in out
+    assert '"' not in out
     assert "'" not in out
 
 

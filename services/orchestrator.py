@@ -8,16 +8,17 @@ siguiente. Si todos fallan, lanza `RuntimeError` con mensaje genérico
 from __future__ import annotations
 
 import logging
-from typing import Sequence
+from collections.abc import Sequence
 
 from models.schemas import RecommendationRequest, RecommendationResponse
-
+from services.exceptions import AIServiceError
 from services.llm_provider import LLMProvider
+from services.tracing import current_trace_id
 
 logger = logging.getLogger(__name__)
 
 
-class AllProvidersFailedError(RuntimeError):
+class AllProvidersFailedError(AIServiceError):
     """Indica que todos los proveedores LLM fallaron."""
 
 
@@ -35,13 +36,27 @@ class LLMOrchestrator:
         last_error: Exception | None = None
         for provider in self._providers:
             if not provider.is_available():
-                logger.info("Proveedor %s no disponible (config), saltando", provider.name)
+                logger.info(
+                    "Proveedor %s no disponible (config), saltando trace_id=%s",
+                    provider.name,
+                    current_trace_id(),
+                )
                 continue
             try:
-                logger.info("Intentando con proveedor %s", provider.name)
+                logger.info(
+                    "Intentando con proveedor %s trace_id=%s",
+                    provider.name,
+                    current_trace_id(),
+                )
                 return provider.get_recommendations(request)
             except Exception as exc:
-                logger.warning("Proveedor %s falló: %s", provider.name, exc, exc_info=True)
+                logger.warning(
+                    "Proveedor %s falló trace_id=%s: %s",
+                    provider.name,
+                    current_trace_id(),
+                    exc,
+                    exc_info=True,
+                )
                 last_error = exc
 
         raise AllProvidersFailedError(

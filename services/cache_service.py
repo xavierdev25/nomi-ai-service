@@ -19,7 +19,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import redis
 from redis.connection import ConnectionPool
@@ -75,7 +76,7 @@ class CacheService:
         preferences: Sequence[str],
         max_recommendations: int,
     ) -> str:
-        """Construye una clave determinística que incluye todos los inputs relevantes."""
+        """Construye una clave determinística para los inputs relevantes."""
         parts = [
             str(user_id),
             ",".join(str(i) for i in sorted(product_ids)),

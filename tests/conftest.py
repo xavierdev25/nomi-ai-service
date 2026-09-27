@@ -1,8 +1,5 @@
-"""Configuración global de tests.
-
-Inyecta variables de entorno seguras antes de que `config.py` se
-importe. Esto evita que los tests fallen por validaciones estrictas
-de producción y mantiene el aislamiento (sin red real).
+"""Entorno de pruebas: variables mínimas antes de importar la app (API key de prueba,
+sin Groq y Redis local).
 """
 
 from __future__ import annotations

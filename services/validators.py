@@ -1,15 +1,8 @@
-"""Validación post-LLM compartida entre proveedores.
+"""Validación de la salida de cualquier proveedor LLM.
 
-Cualquier proveedor (Ollama, Groq, futuros) que devuelva una lista de
-items con la forma `{product_id, score, reason}` debe pasar por
-`normalize_recommendation_items` para garantizar:
-
-1. Que el `product_id` corresponda a un producto realmente disponible
-   (anti-alucinación).
-2. Que los datos del producto (nombre, precio, categoría) se tomen del
-   catálogo real, no del LLM.
-3. Que el `score` esté clamped a [0.0, 1.0].
-4. Que el `reason` esté sanitizado para retorno seguro al cliente.
+Toda lista `{product_id, score, reason}` pasa por aquí: se descartan productos
+inexistentes (alucinados) y repetidos, nombre, precio y categoría se toman del catálogo,
+el score se limita a [0, 1] y el motivo se sanea.
 """
 
 from __future__ import annotations
@@ -27,7 +20,7 @@ def normalize_recommendation_items(
     items: Iterable[dict],
     request: RecommendationRequest,
 ) -> list[ProductRecommendation]:
-    """Convierte items crudos del LLM en `ProductRecommendation` validados."""
+    """Convierte los ítems crudos del modelo en `ProductRecommendation` validados."""
     valid_products = {p.id: p for p in request.available_products}
     out: list[ProductRecommendation] = []
     seen_ids: set[int] = set()
@@ -80,7 +73,7 @@ def sort_and_trim(
     recommendations: list[ProductRecommendation],
     max_recommendations: int,
 ) -> list[ProductRecommendation]:
-    """Filtra score>0, ordena por score desc y aplica el max."""
+    """Descarta score 0, ordena de mayor a menor y recorta a `max_recommendations`."""
     filtered = [r for r in recommendations if r.score > 0.0]
     filtered.sort(key=lambda r: r.score, reverse=True)
     return filtered[:max_recommendations]

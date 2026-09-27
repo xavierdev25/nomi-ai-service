@@ -1,4 +1,6 @@
-"""Tests del circuit breaker usado por proveedores sync."""
+"""Transiciones del circuit breaker: cerrado, abierto tras el umbral y semiabierto tras
+la espera.
+"""
 
 from __future__ import annotations
 

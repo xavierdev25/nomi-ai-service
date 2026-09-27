@@ -1,4 +1,4 @@
-"""Tests de validación de recomendaciones y esquemas relacionados."""
+"""Validación de la salida del modelo contra el catálogo."""
 
 from __future__ import annotations
 

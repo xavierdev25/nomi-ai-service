@@ -1,4 +1,4 @@
-"""Tests del prompt builder (Ollama batch)."""
+"""Contenido y delimitadores del prompt de recomendaciones."""
 
 from __future__ import annotations
 
@@ -51,3 +51,34 @@ def test_batch_prompt_tiene_delimitadores_seguros():
 def test_batch_prompt_no_filtra_user_id_dentro_de_user_data_directamente():
     prompt = PromptBuilder.build_batch_prompt(_make_request(user_id=999))
     assert "999" not in prompt
+
+
+def _catalogo(*ids: int) -> list[AvailableProduct]:
+    return [
+        AvailableProduct(id=i, nombre=f"Producto {i}", precio=5.0, categoria="COMIDA")
+        for i in ids
+    ]
+
+
+def test_schema_solo_admite_ids_del_catalogo():
+    request = _make_request(available_products=_catalogo(9, 3, 15))
+    schema = PromptBuilder.build_response_schema(request)
+    item = schema["properties"]["recommendations"]["items"]
+    assert item["properties"]["product_id"]["enum"] == [3, 9, 15]
+    assert item["required"] == ["product_id", "score", "reason"]
+
+
+def test_schema_limita_la_cantidad_y_el_largo_del_motivo():
+    request = _make_request(
+        available_products=_catalogo(1, 2, 3, 4), max_recommendations=2
+    )
+    schema = PromptBuilder.build_response_schema(request)
+    recommendations = schema["properties"]["recommendations"]
+    assert recommendations["maxItems"] == 2
+    assert recommendations["items"]["properties"]["reason"]["maxLength"] == 80
+
+
+def test_schema_usa_el_maximo_ya_recortado_al_tamano_del_catalogo():
+    request = _make_request(available_products=_catalogo(1, 2), max_recommendations=20)
+    schema = PromptBuilder.build_response_schema(request)
+    assert schema["properties"]["recommendations"]["maxItems"] == 2

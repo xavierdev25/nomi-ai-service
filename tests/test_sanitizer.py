@@ -1,4 +1,4 @@
-"""Tests del sanitizador de prompts y de campos retornados al cliente."""
+"""Saneado de textos para el prompt y del motivo devuelto al cliente."""
 
 from __future__ import annotations
 
@@ -51,10 +51,13 @@ def test_scrub_list_limita_items():
     assert out.count(",") == 1
 
 
-def test_safe_reason_escapa_html():
-    out = safe_reason("<script>alert(1)</script>")
-    assert "<script>" not in out
-    assert "&lt;" in out or "script" not in out.lower()
+def test_safe_reason_quita_etiquetas_y_marcado():
+    out = safe_reason("<script>alert(1)</script> rico {x} `y`")
+    assert out == "alert(1) rico x y"
+
+
+def test_safe_reason_devuelve_texto_plano_sin_entidades_html():
+    assert safe_reason('Pan & queso "criollo"') == 'Pan & queso "criollo"'
 
 
 def test_safe_reason_default_si_vacio():

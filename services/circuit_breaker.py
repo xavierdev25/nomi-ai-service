@@ -1,4 +1,4 @@
-"""Thread-safe circuit breaker for synchronous provider calls."""
+"""Circuit breaker thread-safe para llamadas síncronas a proveedores."""
 
 from __future__ import annotations
 
@@ -10,6 +10,10 @@ from typing import Any, TypeVar
 
 
 class CircuitState(Enum):
+    """Cerrado: llamadas normales. Abierto: se rechazan sin intentar. Semiabierto: se
+    permite una de prueba.
+    """
+
     CLOSED = "closed"
     OPEN = "open"
     HALF_OPEN = "half_open"
@@ -19,6 +23,10 @@ T = TypeVar("T")
 
 
 class CircuitBreaker:
+    """Abre el circuito tras `threshold` fallos consecutivos y deja pasar una llamada de
+    prueba pasados `reset_after` segundos. Un éxito lo vuelve a cerrar.
+    """
+
     def __init__(self, threshold: int = 3, reset_after: float = 60.0):
         self.threshold = threshold
         self.reset_after = reset_after
@@ -33,6 +41,11 @@ class CircuitBreaker:
             return self._state
 
     def call(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+        """Ejecuta `fn` bajo el circuito.
+
+        Raises:
+            RuntimeError: si el circuito está abierto.
+        """
         with self._lock:
             if self._state == CircuitState.OPEN:
                 opened_at = self._opened_at or 0.0

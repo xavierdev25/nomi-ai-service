@@ -13,3 +13,8 @@ prometheus-fastapi-instrumentator==6.1.0
 opentelemetry-api==1.24.0
 opentelemetry-sdk==1.24.0
 opentelemetry-instrumentation-fastapi==0.45b0
+
+# opentelemetry-instrumentation-fastapi still uses the legacy pkg_resources API for
+# entry-point discovery. setuptools>=81 dropped pkg_resources entirely (it's slated for
+# full removal), which breaks `import main` with ModuleNotFoundError on a fresh venv.
+setuptools<81

@@ -1,4 +1,4 @@
-"""Tests de extracción JSON desde respuestas LLM."""
+"""Extracción de JSON de respuestas de LLM."""
 
 from __future__ import annotations
 

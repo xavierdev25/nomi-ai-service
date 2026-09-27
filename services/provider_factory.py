@@ -1,4 +1,4 @@
-"""Provider composition from runtime configuration."""
+"""Composición de la cadena de proveedores según la configuración."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from services.ollama_service import OllamaProvider
 class LLMProviderFactory:
     @staticmethod
     def build_from_config() -> list[LLMProvider]:
+        """Ollama siempre; Groq como respaldo solo si hay `GROQ_API_KEY`."""
         providers: list[LLMProvider] = [
             OllamaProvider(circuit_breaker=CircuitBreaker()),
         ]

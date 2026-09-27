@@ -1,0 +1,19 @@
+{
+  "description": "Catálogo de los datos de prueba con etiquetas dietéticas según la receta habitual de cada plato, y escenarios de evaluación.",
+  "catalog": [
+    {"id": 1, "nombre": "Lomo Saltado", "precio": 14.0, "categoria": "COMIDA", "etiquetas": ["SIN_LACTOSA"]},
+    {"id": 2, "nombre": "Aji de Gallina", "precio": 12.5, "categoria": "COMIDA", "etiquetas": []},
+    {"id": 3, "nombre": "Ensalada Cesar", "precio": 9.0, "categoria": "COMIDA", "etiquetas": []},
+    {"id": 4, "nombre": "Chicha Morada", "precio": 4.0, "categoria": "BEBIDA", "etiquetas": ["VEGETARIANO", "VEGANO", "SIN_GLUTEN", "SIN_LACTOSA"]},
+    {"id": 5, "nombre": "Inca Kola 500ml", "precio": 3.5, "categoria": "BEBIDA", "etiquetas": ["VEGETARIANO", "VEGANO", "SIN_GLUTEN", "SIN_LACTOSA"]},
+    {"id": 6, "nombre": "Alfajor Casero", "precio": 3.0, "categoria": "POSTRE", "etiquetas": ["VEGETARIANO"]},
+    {"id": 7, "nombre": "Papa a la Huancaina", "precio": 7.5, "categoria": "SNACK", "etiquetas": ["VEGETARIANO"]}
+  ],
+  "scenarios": [
+    {"name": "vegetariano almuerzo", "restrictions": ["VEGETARIANO"], "preferences": ["almuerzo"], "max_recommendations": 3},
+    {"name": "vegano", "restrictions": ["VEGANO"], "preferences": ["almuerzo"], "max_recommendations": 3},
+    {"name": "sin lactosa", "restrictions": ["SIN_LACTOSA"], "preferences": ["almuerzo"], "max_recommendations": 3},
+    {"name": "sin restricciones criollo", "restrictions": [], "preferences": ["comida criolla", "contundente"], "max_recommendations": 3},
+    {"name": "algo dulce", "restrictions": [], "preferences": ["dulce", "snack"], "max_recommendations": 3}
+  ]
+}

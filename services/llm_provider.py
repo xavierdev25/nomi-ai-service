@@ -1,7 +1,5 @@
-"""Protocolo común para proveedores LLM.
-
-Permite agregar nuevos modelos (OpenAI, Anthropic, Gemini, etc.) sin
-modificar el orquestador ni el router.
+"""Contrato común de los proveedores LLM, para añadir modelos nuevos sin tocar el
+orquestador ni el router.
 """
 
 from __future__ import annotations
@@ -9,20 +7,24 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from models.schemas import RecommendationRequest, RecommendationResponse
+from services.deadline import Deadline
 
 
 @runtime_checkable
 class LLMProvider(Protocol):
-    """Contrato que debe cumplir cualquier proveedor de recomendaciones."""
+    """Contrato de un proveedor de recomendaciones."""
 
     name: str
 
     def is_available(self) -> bool:
-        """Indica si el proveedor está configurado y operativo."""
+        """Si está configurado; el orquestador salta los que no lo están."""
         ...
 
     def get_recommendations(
-        self, request: RecommendationRequest
+        self, request: RecommendationRequest, deadline: Deadline | None = None
     ) -> RecommendationResponse:
-        """Genera recomendaciones. Lanza excepción si el proveedor falla."""
+        """Genera recomendaciones; lanza una excepción si falla, para que se pruebe el
+        siguiente. `deadline` es el plazo total de la petición: el proveedor no debe
+        empezar trabajo extra (un reintento) que no pueda terminar a tiempo.
+        """
         ...

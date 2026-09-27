@@ -22,4 +22,4 @@ jobs:
       - uses: docker/build-push-action@v5
         with:
           push: false
-          tags: foodv-ai-service:latest
+          tags: nomi-ai-service:latest

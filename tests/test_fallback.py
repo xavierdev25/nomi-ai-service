@@ -1,4 +1,6 @@
-"""Tests del orquestador de proveedores LLM (fallback)."""
+"""Orquestador: uso del primer proveedor, respaldo en cascada, error cuando todos
+fallan y plazo total de la petición.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +13,8 @@ from models.schemas import (
     RecommendationRequest,
     RecommendationResponse,
 )
+from services.deadline import Deadline
+from services.exceptions import InvalidModelOutputError
 from services.orchestrator import AllProvidersFailedError, LLMOrchestrator
 
 
@@ -103,3 +107,59 @@ def test_lanza_error_si_ninguno_disponible():
 def test_orquestador_requiere_al_menos_un_proveedor():
     with pytest.raises(ValueError):
         LLMOrchestrator([])
+
+
+def test_pasa_el_plazo_a_los_proveedores():
+    expected = RecommendationResponse(
+        user_id=1, recommendations=[], generated_by="primary"
+    )
+    primary = _provider("primary", return_value=expected)
+
+    LLMOrchestrator([primary]).execute(_make_request())
+
+    assert isinstance(
+        primary.get_recommendations.call_args.kwargs["deadline"], Deadline
+    )
+
+
+def test_con_el_plazo_agotado_no_prueba_mas_proveedores():
+    primary = _provider("primary", return_value=None)
+
+    orch = LLMOrchestrator([primary], deadline_seconds=0)
+    with pytest.raises(AllProvidersFailedError):
+        orch.execute(_make_request())
+    primary.get_recommendations.assert_not_called()
+
+
+def test_deadline_cuenta_hacia_atras_con_el_reloj():
+    now = [100.0]
+    deadline = Deadline(5, clock=lambda: now[0])
+    assert deadline.remaining() == 5
+    now[0] = 103.5
+    assert deadline.remaining() == 1.5
+    assert not deadline.expired()
+    now[0] = 106
+    assert deadline.remaining() == 0
+    assert deadline.expired()
+
+
+def _sample(name: str, labels: dict[str, str]) -> float:
+    from prometheus_client import REGISTRY
+
+    return REGISTRY.get_sample_value(name, labels) or 0.0
+
+
+def test_registra_metricas_por_proveedor_y_resultado():
+    ok = {"provider": "m-ok", "outcome": "success"}
+    bad = {"provider": "m-bad", "outcome": "invalid_output"}
+    before_ok = _sample("nomi_ai_llm_calls_total", ok)
+    before_bad = _sample("nomi_ai_llm_calls_total", bad)
+    expected = RecommendationResponse(user_id=1, recommendations=[], generated_by="x")
+    failing = _provider("m-bad", side_effect=InvalidModelOutputError("roto"))
+    working = _provider("m-ok", return_value=expected)
+
+    LLMOrchestrator([failing, working]).execute(_make_request())
+
+    assert _sample("nomi_ai_llm_calls_total", ok) == before_ok + 1
+    assert _sample("nomi_ai_llm_calls_total", bad) == before_bad + 1
+    assert _sample("nomi_ai_llm_latency_seconds_count", {"provider": "m-ok"}) >= 1

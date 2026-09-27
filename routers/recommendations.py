@@ -1,13 +1,7 @@
-"""Endpoints de recomendaciones.
+"""Endpoints de recomendaciones (`/api/ai`).
 
-Diseño:
-
-- Handler `async` con `run_in_threadpool` para los servicios sync.
-- Rate limit aplicado **realmente** vía decorador (per IP+API key).
-- Cache key incluye TODOS los inputs relevantes.
-- Errores nunca exponen el mensaje interno crudo: se devuelve un
-  `error_id` correlacionable con los logs.
-- Endpoint `/models` eliminado (filtraba info de infraestructura).
+Los errores inesperados nunca exponen el mensaje interno: se devuelve un `error_id` que
+aparece en los logs para correlacionarlos.
 """
 
 from __future__ import annotations
@@ -29,6 +23,7 @@ from models.schemas import (
 from services.cache_service import CacheService, get_cache_service
 from services.exceptions import AIServiceError
 from services.logging_filter import hash_user_id
+from services.metrics import CACHE_LOOKUPS, RECOMMENDATIONS_RETURNED
 from services.ollama_service import check_ollama_health
 from services.orchestrator import LLMOrchestrator
 from services.rate_limit import limiter
@@ -40,6 +35,7 @@ router = APIRouter()
 
 
 def get_orchestrator(request: Request) -> LLMOrchestrator:
+    """Orquestador creado al arrancar; `503` si todavía no existe."""
     orchestrator = getattr(request.app.state, "orchestrator", None)
     if orchestrator is None:
         raise HTTPException(status_code=503, detail="Service unavailable")
@@ -54,6 +50,12 @@ async def recommend(
     orchestrator: LLMOrchestrator = Depends(get_orchestrator),
     cache: CacheService = Depends(get_cache_service),
 ) -> RecommendationResponse:
+    """Genera recomendaciones, con caché en Redis por combinación exacta de entradas.
+
+    La clave de caché incluye usuario, productos, restricciones, preferencias y
+    cantidad: un cambio en cualquiera invalida el resultado. Las llamadas bloqueantes
+    (Redis, LLM) corren en el threadpool para no bloquear el bucle de eventos.
+    """
     err_id = uuid4().hex[:12]
     uid_hash = hash_user_id(body.user_id)
 
@@ -76,16 +78,21 @@ async def recommend(
 
         cached = await run_in_threadpool(cache.get, cache_key)
         if cached:
-            logger.info("Cache HIT uid=%s", uid_hash)
             try:
-                return RecommendationResponse(**cached)
+                hit = RecommendationResponse(**cached)
+                CACHE_LOOKUPS.labels("hit").inc()
+                RECOMMENDATIONS_RETURNED.observe(len(hit.recommendations))
+                logger.info("Cache HIT uid=%s", uid_hash)
+                return hit
             except ValidationError:
                 logger.warning("Cache corrupto para key=%s, regenerando", cache_key)
+        CACHE_LOOKUPS.labels("miss").inc()
 
         with tracer.start_as_current_span("llm.recommendation"):
             result = await run_in_threadpool(orchestrator.execute, body)
 
         await run_in_threadpool(cache.set, cache_key, result.model_dump())
+        RECOMMENDATIONS_RETURNED.observe(len(result.recommendations))
 
         logger.info(
             "Recomendaciones generadas trace_id=%s uid=%s count=%d source=%s",
@@ -113,6 +120,7 @@ async def recommend(
 
 @router.get("/health/ollama", response_model=OllamaHealthResponse)
 async def ollama_health() -> OllamaHealthResponse:
+    """Estado de Ollama; requiere API key."""
     try:
         result = await run_in_threadpool(check_ollama_health)
     except RuntimeError as exc:

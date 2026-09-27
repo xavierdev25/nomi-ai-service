@@ -1,17 +1,8 @@
-"""Servicio de caché Redis con graceful degradation.
+"""Caché de recomendaciones en Redis que degrada en silencio.
 
-Características:
-
-- Connection pool reutilizable entre requests.
-- Reconexión perezosa: si Redis cae al arranque, futuros requests
-  intentan reconectar en lugar de quedar permanentemente deshabilitados.
-- Las claves incluyen TODOS los inputs que afectan al resultado
-  (user_id, productos, restricciones, preferencias, max_recommendations)
-  para evitar servir recomendaciones obsoletas o que violen restricciones.
-- Falla silenciosamente: cualquier error de Redis se loguea como
-  warning, nunca como excepción al caller.
-- No almacena PII directa; sólo IDs y la respuesta serializada (que
-  contiene IDs de productos, scores y razones).
+Cualquier error de Redis se registra como aviso y la petición sigue sin caché. Solo
+guarda ids, puntuaciones y motivos; el id de usuario solo forma parte del hash de la
+clave.
 """
 
 from __future__ import annotations
@@ -29,11 +20,11 @@ from config import AI_CACHE_TTL_SECONDS, REDIS_MAX_CONNECTIONS, REDIS_URL
 
 logger = logging.getLogger(__name__)
 
-_KEY_PREFIX = "foodv:ai:recs:"
+_KEY_PREFIX = "nomi:ai:recs:"
 
 
 class CacheService:
-    """Wrapper minimalista de Redis con manejo de errores."""
+    """Envoltorio de Redis con pool de conexiones y timeouts cortos (2 s)."""
 
     def __init__(
         self,
@@ -61,6 +52,7 @@ class CacheService:
 
     @property
     def is_available(self) -> bool:
+        """`False` si Redis no respondió al arrancar."""
         return self._pool is not None
 
     def _client(self) -> redis.Redis:
@@ -76,7 +68,9 @@ class CacheService:
         preferences: Sequence[str],
         max_recommendations: int,
     ) -> str:
-        """Construye una clave determinística para los inputs relevantes."""
+        """Clave determinista: hash SHA-256 de las entradas normalizadas (ordenadas,
+        preferencias en minúsculas).
+        """
         parts = [
             str(user_id),
             ",".join(str(i) for i in sorted(product_ids)),
@@ -89,6 +83,7 @@ class CacheService:
         return f"{_KEY_PREFIX}{digest}"
 
     def get(self, key: str) -> dict[str, Any] | None:
+        """Respuesta cacheada, o `None` si no existe, Redis no está o está corrupta."""
         if not self.is_available:
             return None
         try:
@@ -100,6 +95,7 @@ class CacheService:
         return None
 
     def set(self, key: str, data: dict[str, Any]) -> None:
+        """Guarda la respuesta con el TTL configurado; los errores solo se registran."""
         if not self.is_available:
             return
         try:
@@ -108,11 +104,11 @@ class CacheService:
             logger.warning("Error escribiendo cache (%s): %s", key, exc)
 
 
-# Instancia global perezosa
 _cache_service: CacheService | None = None
 
 
 def get_cache_service() -> CacheService:
+    """Instancia única, creada la primera vez que se pide."""
     global _cache_service
     if _cache_service is None:
         _cache_service = CacheService()
@@ -120,6 +116,6 @@ def get_cache_service() -> CacheService:
 
 
 def reset_cache_service_for_tests() -> None:
-    """Solo para tests: fuerza re-inicialización."""
+    """Solo para tests: fuerza a crear una instancia nueva."""
     global _cache_service
     _cache_service = None

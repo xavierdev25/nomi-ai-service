@@ -1,4 +1,4 @@
-# SECURITY.md — FoodV AI Service
+# SECURITY.md — Nomi AI Service
 
 Documento de referencia de seguridad y privacidad del microservicio.
 
@@ -8,11 +8,14 @@ Documento de referencia de seguridad y privacidad del microservicio.
 
 | Actor | Vector | Mitigación |
 |---|---|---|
-| Cliente externo no autenticado | Brute-force / scraping de endpoints | API key con `hmac.compare_digest`, rate limit por (IP+API key), `/docs` deshabilitado en producción. |
+| Cliente externo no autenticado | Brute-force / scraping de endpoints | API key con `hmac.compare_digest`, límite de fallos de autenticación por IP, `/docs` deshabilitado en producción. |
+| Cliente con API key válida | Abuso del modelo | Límite por estudiante (`X-Nomi-User-Id`, que solo se tiene en cuenta tras autenticar) o por API key + IP. |
 | Cliente con API key válida (insider) | Prompt injection vía `preferences`/`restrictions` | Schema Pydantic estricto + `DietaryRestriction` enum + sanitizador defensivo en el prompt builder. |
 | Administrador del catálogo | Inyección vía `nombre`/`categoría` de productos | Validación regex en `AvailableProduct` + sanitización antes del prompt. |
 | LLM (Ollama/Groq) que alucine product IDs | Recomendar productos inexistentes | `normalize_recommendation_items` filtra contra `available_products` reales. |
-| LLM que devuelva HTML/scripts en `reason` | XSS si el frontend lo renderiza como HTML | `safe_reason` con `html.escape` + truncado a 80 chars. |
+| LLM que devuelva HTML/scripts en `reason` | XSS si un frontend lo renderiza como HTML | `safe_reason` devuelve texto plano: quita etiquetas, `< >`, llaves, backticks y caracteres de control, y trunca a 80 chars. No escapa entidades (la app nativa las mostraría literales): un cliente web debe escapar al pintar. |
+| Comercio con un nombre de producto malicioso | Inyección de prompt desde el catálogo | El producto se descarta antes del prompt (con aviso en el log y la métrica `nomi_ai_inputs_dropped_total`); el resto de la petición sigue. |
+| LLM que ignore restricciones dietéticas | Recomendar un plato que el estudiante no puede comer | El backend solo envía candidatos aptos según las etiquetas del comercio; el modelo no decide qué cumple una restricción. |
 | Atacante con MITM al cloud | Lectura de PII enviada a Groq | NO se envía `user_id` ni datos identificables. Solo restricciones agregadas + catálogo. |
 | Atacante interno con acceso a logs | Exfiltración de API keys / tokens | `SecretFilter` redacta `Bearer ...`, `X-API-Key:`, `api_key=...`. |
 | LLM colgado | Threadpool exhaustion | Timeout HTTP explícito (Ollama: 30s, Groq: 20s). |
@@ -23,7 +26,7 @@ Documento de referencia de seguridad y privacidad del microservicio.
 
 ```
 ┌──────────────┐  X-API-Key + JSON   ┌────────────────────┐
-│ Spring Boot  │  ─────────────────► │ FoodV AI Service   │
+│ Spring Boot  │  ─────────────────► │ Nomi AI Service   │
 │  (backend)   │                     │  (este servicio)   │
 └──────────────┘                     └─────────┬──────────┘
                                                │
@@ -58,14 +61,15 @@ Documento de referencia de seguridad y privacidad del microservicio.
 
 ### Datos almacenados en Redis
 
-- Clave: `foodv:ai:recs:<sha256(user_id|product_ids|restrictions|preferences|max_recs)>`
-- Valor: respuesta serializada (`product_id`, `nombre`, `precio`, `categoria`, `score`, `reason`)
+- Clave: `nomi:ai:recs:<sha256(user_id|product_ids|restrictions|preferences|max_recs)>`
+- Valor: respuesta serializada completa: `user_id` (id interno numérico, seudónimo) y las
+  recomendaciones (`product_id`, `nombre`, `precio`, `categoria`, `score`, `reason`)
 - TTL: configurable (default 300s)
-- **NO se almacena PII directa**.
+- No se almacenan nombre, email ni restricciones del usuario.
 
 ### Datos en logs
 
-- `user_id` se hashea (`sha256(user_id)[:12]`) antes de loguear.
+- `user_id` se hashea (`sha256("nomi-uid-<id>")[:12]`, `hash_user_id`) antes de loguear.
 - `SecretFilter` redacta secretos antes de la escritura.
 - Las preferencias y restricciones del usuario NO se loguean.
 
@@ -99,11 +103,13 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 - [ ] Redis con AUTH habilitado y red privada.
 - [ ] Ollama escuchando solo en `localhost` o red privada (NUNCA público).
 - [ ] Logs centralizados con retención conforme a política (30-90 días recomendado).
-- [ ] Healthcheck del orquestador (k8s/docker-compose) apunta a `/health/ready`.
+- [ ] Healthcheck del orquestador (k8s/docker-compose) apunta a `/health/ready`. El `HEALTHCHECK`
+  del `Dockerfile` usa `/health` (solo liveness).
 
 ### Recomendados
 
-- [ ] Métricas Prometheus expuestas en endpoint protegido (no implementado en este repo).
+- [ ] Proteger `/metrics`: es público (sin API key) mientras `WEB_METRICS_ENABLED=true`. Restringirlo
+  en el proxy o desactivarlo.
 - [ ] Alertas: Ollama DOWN > 5 min, Groq fallback > 10% de requests, error rate > 1%.
 - [ ] Backup periódico de Redis (si se usa para algo más que cache transitorio — aquí no).
 - [ ] Auditoría trimestral de las dependencias (`pip-audit`).
@@ -112,7 +118,7 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 ## 5. Cómo reportar una vulnerabilidad
 
-Reportes responsables a: `security@foodv.example` (PGP fingerprint en el sitio público).
+Reportes responsables a: `security@nomi.example` (PGP fingerprint en el sitio público).
 NO abrir issues públicos para vulnerabilidades.
 Plazo de respuesta: 5 días hábiles.
 

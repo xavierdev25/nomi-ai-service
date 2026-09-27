@@ -1,4 +1,4 @@
-# FoodV AI Service — Senior Engineering Analysis
+# Nomi AI Service — Senior Engineering Analysis
 
 > Analysed: 2026-05-17  
 > Codebase: FastAPI 0.136 · Python 3.11 · Pydantic v2 · Ollama + Groq fallback · Redis cache  
@@ -338,7 +338,7 @@ This is unauthenticated. An attacker learns whether Groq fallback is configured 
 
 **🔴 No `.dockerignore` file exists.** `Dockerfile:20` copies the entire build context:
 ```dockerfile
-COPY --chown=foodv:foodv . .
+COPY --chown=nomi:nomi . .
 ```
 If a `.env` file with real credentials exists at build time, it is baked into the image layer. Anyone with pull access to the registry can extract it with `docker run --rm <image> cat /app/.env`.
 

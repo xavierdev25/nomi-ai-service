@@ -1,4 +1,6 @@
-"""Tests del proveedor Groq sin llamadas reales a la API."""
+"""Proveedor Groq: disponibilidad según la clave, prompt y modo JSON compartidos con
+Ollama, respuestas válidas, fallos y JSON malformado.
+"""
 
 from __future__ import annotations
 
@@ -8,10 +10,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from models.schemas import AvailableProduct, RecommendationRequest
+from services.exceptions import InvalidModelOutputError
 from services.groq_service import (
     GroqProvider,
     ProviderUnavailableError,
 )
+from services.prompt_builder import SYSTEM_PROMPT, PromptBuilder
 
 
 @pytest.fixture(autouse=True)
@@ -59,10 +63,10 @@ def test_is_available_returns_false_when_groq_api_key_is_missing():
 
 def test_get_recommendations_returns_valid_list_when_groq_returns_json():
     content = """
-    [
+    {"recommendations": [
       {"product_id": 1, "score": 0.92, "reason": "Buen match"},
       {"product_id": 2, "score": 0.71, "reason": "Ligera"}
-    ]
+    ]}
     """
     mock_client = MagicMock()
     mock_client.chat.completions.create.return_value = _groq_response(content)
@@ -78,6 +82,26 @@ def test_get_recommendations_returns_valid_list_when_groq_returns_json():
     assert [item.product_id for item in result.recommendations] == [1, 2]
     assert result.recommendations[0].nombre == "Pollo saltado"
     mock_client.chat.completions.create.assert_called_once()
+
+
+def test_uses_the_shared_prompt_and_json_mode():
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = _groq_response(
+        '{"recommendations": []}'
+    )
+
+    with (
+        patch("services.groq_service.GROQ_API_KEY", "test-groq-key"),
+        patch("services.groq_service.Groq", return_value=mock_client),
+    ):
+        GroqProvider().get_recommendations(_make_request())
+
+    kwargs = mock_client.chat.completions.create.call_args.kwargs
+    assert kwargs["response_format"] == {"type": "json_object"}
+    assert kwargs["messages"] == [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": PromptBuilder.build_batch_prompt(_make_request())},
+    ]
 
 
 def test_get_recommendations_raises_provider_unavailable_when_groq_raises():
@@ -101,6 +125,6 @@ def test_get_recommendations_handles_malformed_json_gracefully():
     with (
         patch("services.groq_service.GROQ_API_KEY", "test-groq-key"),
         patch("services.groq_service.Groq", return_value=mock_client),
-        pytest.raises(RuntimeError, match="Respuesta inválida del modelo"),
+        pytest.raises(InvalidModelOutputError, match="Respuesta inválida del modelo"),
     ):
         GroqProvider().get_recommendations(_make_request())

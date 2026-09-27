@@ -1,4 +1,4 @@
-"""Tests del cache service."""
+"""Caché: claves deterministas que cambian con cada entrada y degradación sin Redis."""
 
 from __future__ import annotations
 

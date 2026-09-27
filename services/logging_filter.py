@@ -1,9 +1,7 @@
-"""Filtros de logging para redactar secretos antes de escribir el log.
+"""Redacción de secretos en los logs.
 
-Aunque las llamadas a APIs externas no deberían incluir secretos en
-mensajes, el SDK de Groq y los stack traces de excepciones HTTP sí
-pueden filtrar headers `Authorization` o el valor del header
-`X-API-Key`. Este filtro se aplica al root logger.
+Los SDK y las trazas de errores HTTP pueden incluir cabeceras `Authorization` o
+`X-API-Key`; el filtro se instala en el logger raíz y las sustituye por `[REDACTED]`.
 """
 
 from __future__ import annotations
@@ -28,7 +26,7 @@ def _redact(message: str) -> str:
 
 
 class SecretFilter(logging.Filter):
-    """Sustituye secretos en `record.msg` y en `record.args` rendereados."""
+    """Sustituye secretos en el mensaje ya formateado de cada registro."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
@@ -43,7 +41,7 @@ class SecretFilter(logging.Filter):
 
 
 def install_secret_filter() -> None:
-    """Instala el filtro en el root logger y en handlers ya existentes."""
+    """Instala el filtro en el logger raíz y en sus handlers."""
     secret_filter = SecretFilter()
     root = logging.getLogger()
     root.addFilter(secret_filter)
@@ -52,5 +50,5 @@ def install_secret_filter() -> None:
 
 
 def hash_user_id(user_id: int | str, length: int = 12) -> str:
-    """Devuelve un hash corto del user_id para logs sin filtrar PII."""
-    return hashlib.sha256(f"foodv-uid-{user_id}".encode()).hexdigest()[:length]
+    """Hash corto del id de usuario, para correlacionar logs sin guardar el id."""
+    return hashlib.sha256(f"nomi-uid-{user_id}".encode()).hexdigest()[:length]

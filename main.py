@@ -1,11 +1,11 @@
-"""FastAPI app principal.
+"""Aplicación FastAPI del servicio de recomendaciones de Nomi.
 
-Responsabilidades:
+Configura logs JSON con secretos redactados, autenticación por API key, límite de
+peticiones, CORS, métricas Prometheus y trazas OpenTelemetry. Al arrancar crea el
+orquestador con la cadena de proveedores LLM (Ollama y, si hay clave, Groq).
 
-- Wire-up de middlewares (auth con `hmac.compare_digest`, CORS, rate limit).
-- Bootstrap del orquestador LLM con la cadena de proveedores.
-- Health checks: `/health` (liveness, público) y `/health/ready` (readiness).
-- Documentación deshabilitada en producción.
+Salud: `/health` (vivo, público), `/health/ready` (listo, público) y `/health/detail`
+(detalle, requiere API key). La documentación interactiva se desactiva en producción.
 """
 
 from __future__ import annotations
@@ -61,10 +61,12 @@ install_secret_filter()
 logger = logging.getLogger(__name__)
 
 
+# Rutas accesibles sin API key: sondas de salud y métricas para Prometheus.
 _PUBLIC_PATHS = {"/health", "/health/ready", "/metrics"}
 
-# Separate stricter limiter for auth failures. It is checked only on invalid
-# API keys so successful traffic keeps using the normal per-route limiter.
+# Límite aparte para fallos de autenticación (10 por minuto e IP): solo se consume con
+# una API key inválida, así el tráfico legítimo sigue usando el límite normal de cada
+# ruta.
 auth_limiter = Limiter(key_func=get_remote_address, key_style="endpoint")
 
 
@@ -76,6 +78,11 @@ _auth_failure_limit_scope = auth_limiter.limit("10/minute")(_auth_failure_limit_
 
 
 def _consume_auth_failure_quota(request: Request) -> None:
+    """Descuenta un intento del límite de fallos de autenticación.
+
+    Raises:
+        RateLimitExceeded: si se superó el límite.
+    """
     auth_limiter._check_request_limit(  # noqa: SLF001 - SlowAPI has no public manual-hit API.
         request,
         _auth_failure_limit_scope,
@@ -84,10 +91,11 @@ def _consume_auth_failure_quota(request: Request) -> None:
 
 
 class APIKeyAuthMiddleware:
-    """Pure ASGI API-key auth middleware.
+    """Exige la cabecera `X-API-Key` salvo en las rutas públicas, comparándola en tiempo
+    constante (`hmac.compare_digest`).
 
-    Keeping this out of BaseHTTPMiddleware avoids nested middleware hangs with
-    SlowAPI while still letting failed auth attempts consume a separate quota.
+    Es middleware ASGI puro, no `BaseHTTPMiddleware`: este último, combinado con
+    SlowAPI, bloqueaba peticiones anidadas.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -106,8 +114,8 @@ class APIKeyAuthMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # Solo posible en desarrollo: en producción la configuración aborta sin API key.
         if not API_SECRET_KEY:
-            # En dev sin clave configurada: dejamos pasar.
             await self.app(scope, receive, send)
             return
 
@@ -136,6 +144,7 @@ class APIKeyAuthMiddleware:
 
 
 def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Respuesta `429` sin detalles internos."""
     return JSONResponse(
         status_code=429,
         content={"error": "Demasiadas requests, intenta más tarde"},
@@ -143,6 +152,9 @@ def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRespons
 
 
 def _ai_service_error_handler(request: Request, exc: AIServiceError) -> JSONResponse:
+    """`503` cuando ningún proveedor LLM respondió; el backend usa entonces su respuesta
+    de degradación.
+    """
     logger.warning("AI service unavailable: %s", exc)
     return JSONResponse(
         status_code=503,
@@ -151,6 +163,9 @@ def _ai_service_error_handler(request: Request, exc: AIServiceError) -> JSONResp
 
 
 def _check_readiness_internal() -> bool:
+    """Listo si Ollama responde con el modelo configurado, o si hay Groq como
+    alternativa.
+    """
     try:
         check_ollama_health()
         return True
@@ -159,6 +174,7 @@ def _check_readiness_internal() -> bool:
 
 
 def _check_health_detail_internal(app: FastAPI) -> dict:
+    """Estado de Ollama, de Groq, de la caché y de la cadena de proveedores."""
     ollama_ok = False
     try:
         check_ollama_health()
@@ -183,8 +199,13 @@ def _check_health_detail_internal(app: FastAPI) -> dict:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Arranque y parada: construye el orquestador y comprueba Ollama y Redis.
+
+    Si Ollama no está disponible al arrancar solo se registra un aviso: el servicio
+    arranca igual.
+    """
     logger.info(
-        "FoodV AI Service iniciando (env=%s)", "production" if IS_PRODUCTION else "dev"
+        "Nomi AI Service iniciando (env=%s)", "production" if IS_PRODUCTION else "dev"
     )
     logger.info("CORS permitido para: %s", ALLOWED_ORIGINS)
     logger.info(
@@ -209,12 +230,12 @@ async def lifespan(app: FastAPI):
     logger.info("Cache Redis: %s", "UP" if cache.is_available else "DOWN")
 
     yield
-    logger.info("FoodV AI Service detenido")
+    logger.info("Nomi AI Service detenido")
 
 
 app = FastAPI(
-    title="FoodV AI Service",
-    description="Microservicio de recomendaciones con IA para FoodV",
+    title="Nomi AI Service",
+    description="Microservicio de recomendaciones con IA para Nomi",
     version=settings.APP_VERSION,
     lifespan=lifespan,
     docs_url=None if IS_PRODUCTION else "/docs",
@@ -252,22 +273,22 @@ FastAPIInstrumentor.instrument_app(app)
 
 @app.get("/health")
 def health():
-    """Liveness — siempre responde si el proceso está vivo."""
+    """Sonda de vida: el proceso responde."""
     return {
         "status": "ok",
-        "service": "foodv-ai-service",
+        "service": "nomi-ai-service",
         "version": settings.APP_VERSION,
     }
 
 
 @app.get("/health/ready")
 async def readiness():
-    """Public readiness without infrastructure details."""
+    """Sonda de disponibilidad: hay al menos un proveedor LLM utilizable."""
     is_ready = await run_in_threadpool(_check_readiness_internal)
     return {"ready": is_ready}
 
 
 @app.get("/health/detail")
 async def health_detail(request: Request):
-    """Detailed health status. Protected by API key middleware."""
+    """Estado detallado de dependencias; requiere API key."""
     return await run_in_threadpool(_check_health_detail_internal, request.app)

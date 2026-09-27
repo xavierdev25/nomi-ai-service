@@ -1,4 +1,4 @@
-"""Tests del filtro que redacta secretos en logs."""
+"""Redacción de secretos en logs y hash de ids de usuario."""
 
 from __future__ import annotations
 
